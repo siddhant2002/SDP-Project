@@ -7,15 +7,16 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-    <h1>Hello</h1>
     <div>
         <video id="vid"></video>
     </div>
     <br />
     <button id="but" autoplay>
-        Open WebCam
     </button>
+
+    <video id="video" width="640" height="480" autoplay></video>
+    <button id="captureButton">Capture</button>
+    <canvas id="canvas" width="640" height="480" style="display:none;"></canvas>
     <script src="index.js"></script>
 </body>
 </html>

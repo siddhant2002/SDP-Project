@@ -3,8 +3,24 @@
     margin: 0;
     padding: 0;
 }
-body
+/* div {
+    width: 500px;
+    height: 400px;
+    border: 2px solid black;
+    position: relative;
+} */
+
+video {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: auto;
+}
+
+#but
 {
-    background-color: black;
-    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: auto;
 }

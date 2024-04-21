@@ -1,26 +1,33 @@
-alert("Hi");
+const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const captureButton = document.getElementById('captureButton');
 
-let mediaDevices = navigator.mediaDevices;
-document.addEventListener("DOMContentLoaded", () => {
-    let but = document.getElementById("but");
-    let video = document.getElementById("vid");
-    let mediaDevices = navigator.mediaDevices;
-    vid.muted = true;
-    but.addEventListener("click", () => {
-
-        // Accessing the user camera and video.
-        mediaDevices
-            .getUserMedia({
-                video: true,
-                audio: true,
-            })
-            .then((stream) => {
-                // Changing the source of video to current stream.
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
                 video.srcObject = stream;
-                video.addEventListener("loadedmetadata", () => {
-                    video.play();
-                });
             })
-            .catch(alert);
-    });
-});
+            .catch(error => {
+                console.error('Error accessing camera:', error);
+            });
+
+        captureButton.addEventListener('click', () => {
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageDataURL = canvas.toDataURL('image/png');
+
+            // Send the image data to the server
+            fetch('/save-image', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ image: imageDataURL })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Image saved on server:', data.filename);
+            })
+            .catch(error => {
+                console.error('Error saving image:', error);
+            });
+        });
