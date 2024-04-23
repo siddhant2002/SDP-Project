@@ -1,33 +1,32 @@
-const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const captureButton = document.getElementById('captureButton');
+document.addEventListener("DOMContentLoaded", function() {
+    const video = document.getElementById('video');
+    const captureButton = document.getElementById('captureButton');
 
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => {
-                video.srcObject = stream;
-            })
-            .catch(error => {
-                console.error('Error accessing camera:', error);
-            });
-
-        captureButton.addEventListener('click', () => {
-            const context = canvas.getContext('2d');
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const imageDataURL = canvas.toDataURL('image/png');
-
-            // Send the image data to the server
-            fetch('/save-image', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ image: imageDataURL })
-            })
-            .then(response => response.json())
-            .then(data => {
-                console.log('Image saved on server:', data.filename);
-            })
-            .catch(error => {
-                console.error('Error saving image:', error);
-            });
+    navigator.mediaDevices.getUserMedia({ video: true })
+        .then(function(stream) {
+            video.srcObject = stream;
+        })
+        .catch(function(err) {
+            console.error('Error accessing the camera: ', err);
         });
+
+    captureButton.addEventListener('click', async function() {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imgBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+
+        try {
+            // Specify the exact folder path here
+            const folderHandle = await showDirectoryPicker({ startIn: 'downloads' });
+            const writable = await folderHandle.getFileHandle('captured-image.png', { create: true });
+            const stream = await writable.createWritable();
+            await stream.write(imgBlob);
+            await stream.close();
+            console.log('Image saved successfully.');
+        } catch (err) {
+            console.error('Error saving image:', err);
+        }
+    });
+});
