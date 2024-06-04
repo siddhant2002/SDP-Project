@@ -68,7 +68,7 @@
 #     shutil.move(txt_file_path, bounding_data_txt_file_path)
 
 
-# image_folder = r"C:/Users/siddh/Desktop/Final/test_images2"
+# image_folder = r"C:/Users/Phalguni/Desktop/phalgun/test_images1"
 
 # # Connect to MongoDB
 # client = pymongo.MongoClient("mongodb://localhost:27017/")
@@ -256,7 +256,7 @@ for doc in cursor:
 model = torchvision.models.resnet50(weights=torchvision.models.ResNet50_Weights.IMAGENET1K_V1).to('cuda')
 
 # Path to the Image1 folder
-image_path = r"C:/Users/DELL/OneDrive/Desktop/Final Year/test_images2/Phalguni(1)_pre.jpg"
+image_path = r"C:/Users/Phalguni/Desktop/phalgun/test_images1/Phalguni(1)_pre.jpg"
 
 # Preprocess the image
 transforms = torchvision.transforms.Compose([

@@ -29,7 +29,7 @@ pipe = pipeline(processor_name, model_name)
 #     pickle.dump(pipe, f)
 
 # Path to the Image1 folder
-image_folder = r"C:/Users/DELL/OneDrive/Desktop/Final Year/test_images1"
+image_folder = r"C:/Users/Phalguni/Desktop/phalgun/test_images1"
 
 # Initialize variables for previous action
 prev_action = None
