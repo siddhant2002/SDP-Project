@@ -1,11 +1,11 @@
-from transformers import pipeline
+from transformers import pipeline # type: ignore
 import torch
 import uuid
 import torchvision
 import numpy as np
 from PIL import Image
 from datetime import datetime
-import pymongo
+import pymongo # type: ignore
 from tqdm import tqdm
 import os
 from scipy.spatial.distance import cdist
@@ -13,19 +13,23 @@ import torchvision.models as models
 
 # Connect to MongoDB
 client = pymongo.MongoClient("mongodb://localhost:27017/")
-db = client["siddhant1"]
+db = client["human_data"]
 collection = db["face_data"]
 
 # # Load the ResNet50 model
 model = torchvision.models.resnet50(weights=torchvision.models.ResNet50_Weights.IMAGENET1K_V1).to('cuda')
+# torch.save(model.state_dict(),'models/resnet50.h5')
+# model.fc = torch.nn.Identity()
 
 # Load the image classification pipeline
 processor_name = "image-classification"
 model_name = "rvv-karma/Human-Action-Recognition-VIT-Base-patch16-224"
-pipe = pipeline(processor_name, model=model_name)
+pipe = pipeline(processor_name, model_name)
+# with open('models/pipeline_model.pkl', 'wb') as f:
+#     pickle.dump(pipe, f)
 
 # Path to the Image1 folder
-image_folder = r"C:\Users\siddh\Desktop\Final Year\test_images1"
+image_folder = r"C:/Users/DELL/OneDrive/Desktop/Final Year/test_images1"
 
 # Initialize variables for previous action
 prev_action = None
@@ -35,17 +39,17 @@ action_ids = {}  # Dictionary to store action labels and their most recent IDs
 next_action_id = 1  # Initialize the next action ID
 
 # Preprocess the image
-# transforms = torchvision.transforms.Compose([
-#     torchvision.transforms.ToTensor(),
-#     torchvision.transforms.Normalize(
-#         mean=[0.485, 0.456, 0.406],
-#         std=[0.229, 0.224, 0.225]
-#     ),
-# ])
-
 transforms = torchvision.transforms.Compose([
-    torchvision.transforms.ToTensor()
+    torchvision.transforms.ToTensor(),
+    torchvision.transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
+    ),
 ])
+
+# transforms = torchvision.transforms.Compose([
+#     torchvision.transforms.ToTensor()
+# ])
 
 def add_data(data):
     try:
@@ -67,13 +71,22 @@ for filename in tqdm(os.listdir(image_folder)):
     image_path = os.path.join(image_folder, filename)
     image = Image.open(image_path).convert("RGB")
 
-    image_trans = transforms(image).unsqueeze(0).to('cuda')
+    # Path to the bounding_boxes.txt file inside the bounding_data folder
+    bounding_boxes_path = os.path.join('bounding_data', 'bounding_boxes.txt')
+    with open(bounding_boxes_path, 'r') as f:
+        coordinates = [list(map(int, line.strip().split())) for line in f]
 
-    # Calculate image embeddings
-    with torch.no_grad():
-        image_embeddings = model(image_trans).squeeze().cpu().numpy().astype(np.float32)
-        image_embeddings /= np.linalg.norm(image_embeddings)
-        # print(image_embeddings)
+    for idx, coord in enumerate(coordinates):
+        x1, y1, x2, y2 = coord
+        # Crop the image to the bounding box
+        cropped_image = image.crop((x1, y1, x2, y2))
+        # Preprocess the cropped image
+        cropped_image_trans = transforms(cropped_image).unsqueeze(0).to('cuda')
+
+        # Calculate image embeddings
+        with torch.no_grad():
+            image_embeddings = model(cropped_image_trans).squeeze().cpu().numpy().astype(np.float32)
+            image_embeddings /= np.linalg.norm(image_embeddings)
 
     if not len(people_embeddings_arr):
         print("First add")
@@ -82,7 +95,8 @@ for filename in tqdm(os.listdir(image_folder)):
         # Enter into DB
         data = {
             "person_id": uuid.uuid4().hex,
-            "embeddings": image_embeddings.tolist()
+            "embeddings": image_embeddings.tolist(),
+            "actions": {}
         }
         
         status, message = add_data(data)
@@ -93,6 +107,7 @@ for filename in tqdm(os.listdir(image_folder)):
         # Check if any embedding is 'close enough' (determined by threshold) to this
         all_other_embeddings = np.stack(people_embeddings_arr)
         pairwise_dist = cdist(image_embeddings.reshape(1, -1), all_other_embeddings.reshape(-1, 1000))
+        # pairwise_dist = cdist(image_embeddings.reshape(1, -1), all_other_embeddings.reshape(-1, 2048))
         best_candidate_distance = np.min(pairwise_dist)
 
         if best_candidate_distance < THRESHOLD:
@@ -131,8 +146,12 @@ for filename in tqdm(os.listdir(image_folder)):
 
     # Update the action data in the MongoDB collection
     
-    if max_action['score'] > 0.1:
-        collection.update_one(
+    # if max_action['score'] > 0.5:
+    #     collection.update_one(
+    #         {"person_id": face_id},
+    #         {"$set": {f"actions.{time_now}": {"id": action_map[max_action['label']], "name": max_action['label'], "confidence": max_action['score']}}}
+    #     )
+    collection.update_one(
             {"person_id": face_id},
             {"$set": {f"actions.{time_now}": {"id": action_map[max_action['label']], "name": max_action['label'], "confidence": max_action['score']}}}
         )
