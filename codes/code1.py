@@ -20,7 +20,8 @@ def FrameCapture(path):
 
 		# Save every 10th frame with frame-count 
 		if count % 2 == 0 and success:
-			cv2.imwrite("C:/Users/siddh/Desktop/Final Year/Images/frame%d.jpg" % count, image) 
+			cv2.imwrite("C:/Users/Phalguni/Desktop/phalgun/Images/frame%d.jpg" % count, image) 
+			# storing frames after extracting them from the video
 
 		count += 1
 	vidObj.release()
@@ -29,4 +30,4 @@ def FrameCapture(path):
 if __name__ == '__main__': 
 
 	# Calling the function 
-	FrameCapture("C:/Users/siddh/Desktop/Final Year/videos/video2.mp4")
+	FrameCapture("C:/Users/Phalguni/Desktop/phalgun/videos/video2.mp4")
