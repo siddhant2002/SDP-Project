@@ -357,8 +357,7 @@ if best_candidate_distance < THRESHOLD:
         #     to=recipient_phone_number,
         #     from_=twilio_phone_number,
         #     body='Anomaly detected! Deep in the computer.'
-        # )
-
+        # }
         # print('SMS alert sent successfully.')
     else:
         print("No anomaly detected.")
