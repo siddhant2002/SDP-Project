@@ -1,180 +1,166 @@
-from transformers import pipeline # type: ignore
-import torch
-import uuid
-import torchvision
-import numpy as np
-from PIL import Image
-from datetime import datetime
-import pymongo # type: ignore
-from tqdm import tqdm
+from ultralytics import YOLO
+import cv2
 import os
-from scipy.spatial.distance import cdist
-import torchvision.models as models
+import numpy as np
+from deepface import DeepFace # type: ignore
+from pymongo import MongoClient # type: ignore
+from sklearn.metrics.pairwise import cosine_similarity # type: ignore
+import uuid
+from transformers import pipeline # type: ignore
+from datetime import datetime
+import torch
+from PIL import Image
+
+# Initialize YOLO model
+model = YOLO('yolov8l.pt').to('cuda')
 
 # Connect to MongoDB
-client = pymongo.MongoClient("mongodb://localhost:27017/")
-db = client["human_data"]
-collection = db["face_data"]
+client = MongoClient('mongodb://localhost:27017/')
+db = client['face_data']
+collection = db['embedding']
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# # Load the ResNet50 model
-model = torchvision.models.resnet50(weights=torchvision.models.ResNet50_Weights.IMAGENET1K_V1).to('cuda')
-# torch.save(model.state_dict(),'models/resnet50.h5')
-# model.fc = torch.nn.Identity()
-
-# Load the image classification pipeline
+# Load the image classification pipeline for action recognition
 processor_name = "image-classification"
 model_name = "rvv-karma/Human-Action-Recognition-VIT-Base-patch16-224"
-pipe = pipeline(processor_name, model_name)
-# with open('models/pipeline_model.pkl', 'wb') as f:
-#     pickle.dump(pipe, f)
+pipe = pipeline(processor_name, model_name, device=device)
 
-# Path to the Image1 folder
-image_folder = r"C:/Users/Phalguni/Desktop/phalgun/test_images1"
+# Global action map to store action IDs
+action_map = {}
+next_action_id = 1
 
-# Initialize variables for previous action
-prev_action = None
-prev_face_data_id = None
-action_map = {}  # Map actions to numbers
-action_ids = {}  # Dictionary to store action labels and their most recent IDs
-next_action_id = 1  # Initialize the next action ID
-
-# Preprocess the image
-transforms = torchvision.transforms.Compose([
-    torchvision.transforms.ToTensor(),
-    torchvision.transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
-    ),
-])
-
-# transforms = torchvision.transforms.Compose([
-#     torchvision.transforms.ToTensor()
-# ])
-
-def add_data(data):
+# Function to check similarity with embeddings in the database
+def check_similarity_with_database(new_embedding, similarity_threshold=0.65):
     try:
-        _ = collection.insert_one(data)
-        return "Success", 0
+        max_similarity = -1  # Initialize to a very low value
+        most_similar_document = None
+
+        # Compare with embeddings in MongoDB collection
+        for document in collection.find():
+            # db_embedding = np.array(document["embedding"]).reshape(512)
+
+            # # Calculate cosine similarity
+            # similarity = cosine_similarity(new_embedding.reshape(512), db_embedding)
+            db_embedding = np.array(document["embedding"])
+
+            # Calculate cosine similarity
+            similarity = cosine_similarity([new_embedding], [db_embedding])[0][0]
+
+            # print(similarity)
+
+            # Update max similarity and most similar document
+            if similarity > max_similarity:
+                max_similarity = similarity
+                most_similar_document = document
+
+        if max_similarity > similarity_threshold:
+            print(f"Similar embedding found in database for person_id: {most_similar_document['person_id']} with similarity {max_similarity}")
+            return most_similar_document  # Return the document if max similarity is above threshold
+
+        return None  # Return None if no similar embedding is found above threshold
+
     except Exception as e:
-        print(e)
-        return "Failed", e
+        print(f"Error during similarity check: {e}")
+        return None
 
-people_embeddings_arr = []
-THRESHOLD = 0.1  # Threshold to qualify new entry
 
-# Process each image in the Image1 folder
-for filename in tqdm(os.listdir(image_folder)):
-    if not filename.endswith(".jpg"):
-        continue
+# def cosine_similarity(embedding1, embedding2):
+#     dot_product = np.dot(embedding1, embedding2)
+#     norm1 = np.linalg.norm(embedding1)
+#     norm2 = np.linalg.norm(embedding2)
+#     return dot_product / (norm1 * norm2)
 
-    # Open and convert the image to RGB format
-    image_path = os.path.join(image_folder, filename)
-    image = Image.open(image_path).convert("RGB")
+# Function to process images
+def process_image(image_path, image_name):
+    global next_action_id  # Use the global variable
 
-    # Path to the bounding_boxes.txt file inside the bounding_data folder
-    bounding_boxes_path = os.path.join('bounding_data', 'bounding_boxes.txt')
-    with open(bounding_boxes_path, 'r') as f:
-        coordinates = [list(map(int, line.strip().split())) for line in f]
+    results = model(image_path)
+    img = cv2.imread(image_path)
+    boxes = results[0].boxes.xyxy.tolist()
+    classes = results[0].boxes.cls.tolist()
+    names = results[0].names
+    confidences = results[0].boxes.conf.tolist()
 
-    for idx, coord in enumerate(coordinates):
-        x1, y1, x2, y2 = coord
-        # Crop the image to the bounding box
-        cropped_image = image.crop((x1, y1, x2, y2))
-        # Preprocess the cropped image
-        cropped_image_trans = transforms(cropped_image).unsqueeze(0).to('cuda')
+    for box, cls, conf in zip(boxes, classes, confidences):
+        x1, y1, x2, y2 = map(int, box)
+        confidence = conf
+        detected_class = cls
+        name = names[detected_class]
+        if name == "person":
+            # Crop the detected region
+            cropped_img = img[y1:y2, x1:x2]
 
-        # Calculate image embeddings
-        with torch.no_grad():
-            image_embeddings = model(cropped_image_trans).squeeze().cpu().numpy().astype(np.float32)
-            image_embeddings /= np.linalg.norm(image_embeddings)
+            # Convert the cropped image to PIL Image format and save temporarily
+            pil_image = Image.fromarray(cv2.cvtColor(cropped_img, cv2.COLOR_BGR2RGB))
+            temp_img_path = "temp_cropped_img.jpg"
+            pil_image.save(temp_img_path)
 
-    if not len(people_embeddings_arr):
-        print("First add")
-        people_embeddings_arr.append(image_embeddings)
-        
-        # Enter into DB
-        data = {
-            "person_id": uuid.uuid4().hex,
-            "embeddings": image_embeddings.tolist(),
-            "actions": {}
-        }
-        
-        status, message = add_data(data)
-        if not message:
-            print(message)
+            # Perform embedding extraction
+            try:
+                embedding = DeepFace.represent(img_path=temp_img_path, model_name='Facenet512', enforce_detection=False)[0]['embedding']
+                new_embedding = np.array(embedding)
 
-    else:
-        # Check if any embedding is 'close enough' (determined by threshold) to this
-        all_other_embeddings = np.stack(people_embeddings_arr)
-        pairwise_dist = cdist(image_embeddings.reshape(1, -1), all_other_embeddings.reshape(-1, 1000))
-        # pairwise_dist = cdist(image_embeddings.reshape(1, -1), all_other_embeddings.reshape(-1, 2048))
-        best_candidate_distance = np.min(pairwise_dist)
+                # Check if embedding already exists in database based on similarity
+                similar_document = check_similarity_with_database(new_embedding)
+                if similar_document:
+                    print(f"Similar embedding found in database for person_id: {similar_document['person_id']}. Updating action object.")
 
-        if best_candidate_distance < THRESHOLD:
-            best_match_idx = np.argmin(pairwise_dist)
-            # print(f"Similar person found at index {best_match_idx}. Skipping...")
-        else:
-            print("New person. Adding")
-            people_embeddings_arr.append(image_embeddings)
-            
-            # Enter into DB
-            data = {
-                "person_id": uuid.uuid4().hex,
-                "embeddings": image_embeddings.tolist(),
-                "actions": {}
-            }
-            status, message = add_data(data)
-            if not message:
-                print(message)
+                    # Perform action recognition
+                    outputs = pipe(temp_img_path)
+                    max_action = max(outputs, key=lambda x: x['score'])
 
-    # Process the image using the pipeline
-    outputs = pipe(image)
+                    # Assign an ID to the action name if it's not already assigned
+                    if max_action['label'] not in action_map:
+                        action_map[max_action['label']] = next_action_id
+                        next_action_id += 1
 
-    # Extract the action with the maximum confidence score
-    max_action = max(outputs, key=lambda x: x['score'])
+                    action_id = action_map[max_action['label']]
 
-    # Get the current time
-    time_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    # Get the current time
+                    time_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Assuming you have a face_id for the person
-    face_id = data["person_id"]
+                    # Update the action data in the MongoDB collection
+                    collection.update_one(
+                        {"person_id": similar_document['person_id']},
+                        {"$set": {f"actions.{time_now}": {"id": action_id, "name": max_action['label'], "confidence": max_action['score']}}}
+                    )
 
-    # Assign an ID to the action name if it's not already assigned
-    if max_action['label'] not in action_map:
-        action_map[max_action['label']] = next_action_id
-        next_action_id += 1
+                else:
+                    # Perform action recognition
+                    outputs = pipe(temp_img_path)
+                    max_action = max(outputs, key=lambda x: x['score'])
 
-    # Update the action data in the MongoDB collection
-    
-    # if max_action['score'] > 0.5:
-    #     collection.update_one(
-    #         {"person_id": face_id},
-    #         {"$set": {f"actions.{time_now}": {"id": action_map[max_action['label']], "name": max_action['label'], "confidence": max_action['score']}}}
-    #     )
-    collection.update_one(
-            {"person_id": face_id},
-            {"$set": {f"actions.{time_now}": {"id": action_map[max_action['label']], "name": max_action['label'], "confidence": max_action['score']}}}
-        )
+                    # Assign an ID to the action name if it's not already assigned
+                    if max_action['label'] not in action_map:
+                        action_map[max_action['label']] = next_action_id
+                        next_action_id += 1
 
-    # Print the action, its confidence score, and the time
-    print(f"Action: {max_action['label']}, ID: {action_map[max_action['label']]}, Confidence: {max_action['score']}, Timestamp: {time_now}")
+                    action_id = action_map[max_action['label']]
 
-client.close()
+                    # Get the current time
+                    time_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-# {
-#     "person_id_1": {
-#         ts0: action,
-#         ts1: action,
-#         ts2: action, ...
-#     },
-#     "person_id_2": {
-#         ts0: action,
-#         ts1: action,
-#         ts2: action, ...
-#     },
-#     "person_id_3": {
-#         ts0: action,
-#         ts1: action,
-#         ts2: action, ...
-#     },
-# }
+                    # Create document to insert into MongoDB
+                    document = {
+                        "person_id": uuid.uuid4().hex,
+                        "image_name": image_name,
+                        "embedding": new_embedding.tolist(),
+                        "actions": {time_now: {"id": action_id, "name": max_action['label'], "confidence": max_action['score']}}
+                    }
+
+                    # Insert document into MongoDB collection
+                    collection.insert_one(document)
+                    print(f"Inserted embedding, image, and action for person_id: {document['person_id']} into MongoDB")
+
+            except Exception as e:
+                print(f"Error processing {image_name}: {e}")
+
+# Main processing loop
+image_directory = "Images"
+for img_file in os.listdir(image_directory):
+    if img_file.endswith(".jpg"):
+        img_path = os.path.join(image_directory, img_file)
+        process_image(img_path, img_file)
+
+print("Processing complete")
+
